@@ -330,9 +330,5 @@ def train_endpoint():
 
 
 if __name__ == '__main__':
-    print("=" * 50)
-    print("  MNIST 손글씨 인식 웹 서버")
-    print(f"  디바이스: {DEVICE}")
-    print("  http://localhost:5000 에서 실행")
-    print("=" * 50)
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
