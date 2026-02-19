@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DIGIT ORACLE — 손글씨 숫자 인식</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Bebas+Neue&family=Noto+Sans+KR:wght@300;400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:       #050508;
+    --surface:  #0d0d14;
+    --border:   #1e1e2e;
+    --accent:   #00f5a0;
+    --accent2:  #00d4ff;
+    --danger:   #ff3e6c;
+    --text:     #e0e0f0;
+    --muted:    #5a5a7a;
+    --glow:     0 0 20px rgba(0,245,160,0.3);
+    --glow2:    0 0 30px rgba(0,212,255,0.2);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Noto Sans KR', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* 배경 그리드 */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(0,245,160,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,245,160,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* 글로우 오브 */
+  body::after {
+    content: '';
+    position: fixed;
+    top: -200px; left: 50%;
+    transform: translateX(-50%);
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, rgba(0,245,160,0.06) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    position: relative; z-index: 1;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 40px 24px;
+  }
+
+  /* ─── 헤더 ─── */
+  header {
+    text-align: center;
+    margin-bottom: 60px;
+  }
+
+  .logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(48px, 8vw, 96px);
+    letter-spacing: 0.1em;
+    line-height: 1;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    filter: drop-shadow(0 0 20px rgba(0,245,160,0.4));
+    animation: pulse-glow 3s ease-in-out infinite;
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% { filter: drop-shadow(0 0 20px rgba(0,245,160,0.4)); }
+    50%       { filter: drop-shadow(0 0 40px rgba(0,245,160,0.7)); }
+  }
+
+  .subtitle {
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.25em;
+    margin-top: 8px;
+  }
+
+  .status-bar {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 16px;
+    margin-top: 16px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: all 0.3s;
+  }
+  .status-dot.online { background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: blink 2s infinite; }
+  .status-dot.error  { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* ─── 메인 레이아웃 ─── */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+
+  @media (max-width: 720px) {
+    .main-grid { grid-template-columns: 1fr; }
+  }
+
+  /* ─── 패널 ─── */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .panel::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0.6;
+  }
+
+  .panel-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+
+  /* ─── 캔버스 영역 ─── */
+  .canvas-wrapper {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .canvas-frame {
+    position: relative;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: crosshair;
+    transition: border-color 0.3s;
+  }
+
+  .canvas-frame:hover,
+  .canvas-frame.drawing {
+    border-color: var(--accent);
+    box-shadow: var(--glow);
+  }
+
+  #drawCanvas {
+    display: block;
+    background: #000;
+    touch-action: none;
+  }
+
+  /* 모서리 장식 */
+  .corner {
+    position: absolute;
+    width: 12px; height: 12px;
+    border-color: var(--accent);
+    border-style: solid;
+    opacity: 0.7;
+  }
+  .corner.tl { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
+  .corner.tr { top: -1px; right: -1px; border-width: 2px 2px 0 0; }
+  .corner.bl { bottom: -1px; left: -1px; border-width: 0 0 2px 2px; }
+  .corner.br { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+
+  .canvas-controls {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .btn {
+    flex: 1;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+  }
+
+  .btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: var(--glow);
+  }
+
+  .btn.primary {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(0,245,160,0.05);
+  }
+
+  .btn.primary:hover {
+    background: rgba(0,245,160,0.15);
+    box-shadow: var(--glow);
+  }
+
+  .btn.danger {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+  .btn.danger:hover { background: rgba(255,62,108,0.1); }
+
+  /* 브러시 크기 */
+  .brush-control {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .brush-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  input[type=range] {
+    flex: 1;
+    -webkit-appearance: none;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+  }
+
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    box-shadow: 0 0 8px var(--accent);
+  }
+
+  /* ─── 결과 패널 ─── */
+  .result-display {
+    text-align: center;
+    padding: 24px 0;
+  }
+
+  .result-number {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 120px;
+    line-height: 1;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    filter: drop-shadow(0 0 30px rgba(0,245,160,0.5));
+    transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    transform: scale(1);
+  }
+
+  .result-number.pop {
+    animation: pop 0.4s cubic-bezier(0.34,1.56,0.64,1);
+  }
+
+  @keyframes pop {
+    0%   { transform: scale(0.5); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  .result-placeholder {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 80px;
+    color: var(--border);
+    line-height: 1;
+  }
+
+  .confidence-bar-wrap {
+    margin: 16px 0;
+  }
+
+  .confidence-label {
+    display: flex;
+    justify-content: space-between;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .confidence-track {
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .confidence-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    width: 0%;
+    transition: width 0.6s cubic-bezier(0.4,0,0.2,1);
+    box-shadow: 0 0 10px var(--accent);
+  }
+
+  /* ─── 확률 분포 차트 ─── */
+  .prob-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+    margin-top: 20px;
+  }
+
+  .prob-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .prob-bar-container {
+    width: 100%;
+    height: 60px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    display: flex;
+    align-items: flex-end;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .prob-bar {
+    width: 100%;
+    background: linear-gradient(180deg, var(--accent2), var(--accent));
+    transition: height 0.5s cubic-bezier(0.4,0,0.2,1);
+    height: 0%;
+    opacity: 0.6;
+  }
+
+  .prob-bar.best {
+    opacity: 1;
+    box-shadow: 0 0 12px var(--accent);
+  }
+
+  .prob-digit {
+    font-family: 'Space Mono', monospace;
+    font-size: 14px;
+    color: var(--muted);
+    font-weight: 700;
+  }
+
+  .prob-digit.best { color: var(--accent); }
+
+  .prob-pct {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--muted);
+  }
+
+  /* ─── 미리보기 ─── */
+  .preview-wrap {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 16px;
+    padding: 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  #previewCanvas {
+    border: 1px solid var(--border);
+    image-rendering: pixelated;
+    border-radius: 4px;
+  }
+
+  .preview-info {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.8;
+  }
+
+  /* ─── 로딩 ─── */
+  .scanning {
+    display: none;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    color: var(--accent);
+    letter-spacing: 0.2em;
+    animation: scan 1.2s infinite;
+  }
+
+  @keyframes scan {
+    0%,100% { opacity: 1; }
+    50%      { opacity: 0.3; }
+  }
+
+  /* ─── 기록 ─── */
+  .history-panel {
+    margin-top: 24px;
+  }
+
+  .history-list {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+
+  .history-item {
+    width: 48px; height: 48px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.2s;
+    animation: fadeIn 0.3s;
+  }
+
+  .history-item:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  @keyframes fadeIn { from { opacity: 0; transform: scale(0.7); } }
+
+  /* ─── 학습 배너 ─── */
+  #trainBanner {
+    background: rgba(255,62,108,0.08);
+    border: 1px solid rgba(255,62,108,0.3);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+    display: none;
+  }
+
+  #trainBanner.visible { display: block; }
+
+  .train-msg {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    color: var(--danger);
+    margin-bottom: 12px;
+  }
+
+  .train-progress {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 8px;
+    min-height: 16px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- 헤더 -->
+  <header>
+    <div class="logo">DIGIT ORACLE</div>
+    <div class="subtitle">[ MNIST 손글씨 숫자 인식 시스템 ]</div>
+    <div class="status-bar">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">연결 확인 중...</span>
+    </div>
+  </header>
+
+  <!-- 모델 미학습 배너 -->
+  <div id="trainBanner">
+    <div class="train-msg">⚠ 학습된 모델이 없습니다. 먼저 mnist_cnn.py 로 학습하거나 아래 버튼으로 서버 내 학습을 시작하세요.</div>
+    <button class="btn primary" onclick="startTraining()" id="trainBtn">서버에서 강화 학습 시작 (30 에포크 · ResNet + 증강)</button>
+    <div class="train-progress" id="trainProgress"></div>
+  </div>
+
+  <!-- 메인 그리드 -->
+  <div class="main-grid">
+
+    <!-- 왼쪽: 캔버스 -->
+    <div class="panel">
+      <div class="panel-title">▸ 입력 — 숫자를 그려주세요</div>
+      <div class="canvas-wrapper">
+        <div class="canvas-frame" id="canvasFrame">
+          <div class="corner tl"></div>
+          <div class="corner tr"></div>
+          <div class="corner bl"></div>
+          <div class="corner br"></div>
+          <canvas id="drawCanvas" width="280" height="280"></canvas>
+        </div>
+
+        <!-- 브러시 크기 -->
+        <div class="brush-control">
+          <span class="brush-label">브러시</span>
+          <input type="range" id="brushSize" min="8" max="36" value="20">
+          <span class="brush-label" id="brushVal">20px</span>
+        </div>
+
+        <!-- 버튼 -->
+        <div class="canvas-controls">
+          <button class="btn danger" onclick="clearCanvas()">✕ 지우기</button>
+          <button class="btn primary" onclick="predict()">→ 인식</button>
+        </div>
+
+        <!-- 28×28 미리보기 -->
+        <div class="preview-wrap">
+          <canvas id="previewCanvas" width="56" height="56" style="width:56px;height:56px;"></canvas>
+          <div class="preview-info">
+            모델 입력 해상도<br>28 × 28 픽셀<br>그레이스케일
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 오른쪽: 결과 -->
+    <div class="panel">
+      <div class="panel-title">▸ 결과 — 분류 출력</div>
+
+      <div class="result-display">
+        <div class="result-number" id="resultNum">
+          <span class="result-placeholder">?</span>
+        </div>
+        <div class="scanning" id="scanning">SCANNING...</div>
+      </div>
+
+      <div class="confidence-bar-wrap">
+        <div class="confidence-label">
+          <span>신뢰도</span>
+          <span id="confText">—</span>
+        </div>
+        <div class="confidence-track">
+          <div class="confidence-fill" id="confFill"></div>
+        </div>
+      </div>
+
+      <!-- 확률 분포 -->
+      <div class="panel-title" style="margin-top:24px">▸ 클래스별 확률</div>
+      <div class="prob-grid" id="probGrid"></div>
+    </div>
+  </div>
+
+  <!-- 인식 기록 -->
+  <div class="panel history-panel">
+    <div class="panel-title">▸ 인식 기록</div>
+    <div class="history-list" id="historyList">
+      <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">아직 인식 기록이 없습니다</span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ─── 상수 ───
+const API = '';   // 같은 오리진
+
+// ─── 캔버스 설정 ───
+const canvas  = document.getElementById('drawCanvas');
+const ctx     = canvas.getContext('2d');
+const preview = document.getElementById('previewCanvas');
+const pCtx    = preview.getContext('2d');
+
+ctx.fillStyle = '#000';
+ctx.fillRect(0, 0, 280, 280);
+ctx.lineCap    = 'round';
+ctx.lineJoin   = 'round';
+ctx.strokeStyle = '#fff';
+ctx.lineWidth  = 20;
+
+let drawing = false;
+let lastX = 0, lastY = 0;
+let drawTimeout = null;
+let history = [];
+
+// ─── 브러시 크기 ───
+const brushSlider = document.getElementById('brushSize');
+brushSlider.addEventListener('input', () => {
+  ctx.lineWidth = brushSlider.value;
+  document.getElementById('brushVal').textContent = brushSlider.value + 'px';
+});
+
+// ─── 좌표 변환 ───
+function getPos(e) {
+  const r = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / r.width;
+  const scaleY = canvas.height / r.height;
+  if (e.touches) {
+    return {
+      x: (e.touches[0].clientX - r.left) * scaleX,
+      y: (e.touches[0].clientY - r.top)  * scaleY
+    };
+  }
+  return {
+    x: (e.clientX - r.left) * scaleX,
+    y: (e.clientY - r.top)  * scaleY
+  };
+}
+
+// ─── 드로잉 이벤트 ───
+canvas.addEventListener('mousedown', e => {
+  drawing = true;
+  const p = getPos(e);
+  [lastX, lastY] = [p.x, p.y];
+  document.getElementById('canvasFrame').classList.add('drawing');
+  // 점 찍기
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, ctx.lineWidth/2, 0, Math.PI*2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+  updatePreview();
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (!drawing) return;
+  const p = getPos(e);
+  ctx.beginPath();
+  ctx.moveTo(lastX, lastY);
+  ctx.lineTo(p.x, p.y);
+  ctx.stroke();
+  [lastX, lastY] = [p.x, p.y];
+  updatePreview();
+  scheduleAutoPredict();
+});
+
+canvas.addEventListener('mouseup', () => stopDraw());
+canvas.addEventListener('mouseleave', () => stopDraw());
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const p = getPos(e);
+  drawing = true;
+  [lastX, lastY] = [p.x, p.y];
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, ctx.lineWidth/2, 0, Math.PI*2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+  updatePreview();
+}, {passive:false});
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (!drawing) return;
+  const p = getPos(e);
+  ctx.beginPath();
+  ctx.moveTo(lastX, lastY);
+  ctx.lineTo(p.x, p.y);
+  ctx.stroke();
+  [lastX, lastY] = [p.x, p.y];
+  updatePreview();
+  scheduleAutoPredict();
+}, {passive:false});
+
+canvas.addEventListener('touchend', () => stopDraw());
+
+function stopDraw() {
+  drawing = false;
+  document.getElementById('canvasFrame').classList.remove('drawing');
+}
+
+function scheduleAutoPredict() {
+  if (drawTimeout) clearTimeout(drawTimeout);
+  drawTimeout = setTimeout(() => predict(), 500);
+}
+
+// ─── 28×28 미리보기 업데이트 ───
+function updatePreview() {
+  pCtx.clearRect(0, 0, 56, 56);
+  pCtx.drawImage(canvas, 0, 0, 56, 56);
+}
+
+// ─── 캔버스 초기화 ───
+function clearCanvas() {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, 280, 280);
+  pCtx.clearRect(0, 0, 56, 56);
+  if (drawTimeout) clearTimeout(drawTimeout);
+  resetResult();
+}
+
+function resetResult() {
+  document.getElementById('resultNum').innerHTML = '<span class="result-placeholder">?</span>';
+  document.getElementById('confText').textContent = '—';
+  document.getElementById('confFill').style.width = '0%';
+  document.getElementById('probGrid').innerHTML = '';
+  document.getElementById('scanning').style.display = 'none';
+}
+
+// ─── 확률 차트 렌더링 ───
+function renderProbGrid(probs, best) {
+  const grid = document.getElementById('probGrid');
+  grid.innerHTML = '';
+  for (let i = 0; i < 10; i++) {
+    const pct = probs[String(i)] || 0;
+    const isBest = i === best;
+    const item = document.createElement('div');
+    item.className = 'prob-item';
+    item.innerHTML = `
+      <div class="prob-bar-container">
+        <div class="prob-bar${isBest?' best':''}" style="height:${Math.max(pct,0.3)}%"></div>
+      </div>
+      <div class="prob-digit${isBest?' best':''}">${i}</div>
+      <div class="prob-pct">${pct.toFixed(1)}%</div>
+    `;
+    grid.appendChild(item);
+  }
+}
+
+// ─── 예측 ───
+async function predict() {
+  const imageData = canvas.toDataURL('image/png');
+
+  // 빈 캔버스 체크 (평균 픽셀값)
+  const data = ctx.getImageData(0,0,280,280).data;
+  const avg = Array.from(data).filter((_,i)=>i%4===0).reduce((a,b)=>a+b,0)/((280*280));
+  if (avg < 2) return;
+
+  document.getElementById('scanning').style.display = 'block';
+  document.getElementById('resultNum').style.opacity = '0.3';
+
+  try {
+    const res = await fetch('/api/predict', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({image: imageData})
+    });
+    const data = await res.json();
+
+    document.getElementById('scanning').style.display = 'none';
+    document.getElementById('resultNum').style.opacity = '1';
+
+    if (data.error) {
+      document.getElementById('resultNum').innerHTML = `<span style="color:var(--danger);font-size:40px">${data.error}</span>`;
+      return;
+    }
+
+    // 결과 표시
+    const numEl = document.getElementById('resultNum');
+    numEl.textContent = data.prediction;
+    numEl.classList.remove('pop');
+    void numEl.offsetWidth;
+    numEl.classList.add('pop');
+
+    // 신뢰도 바
+    document.getElementById('confText').textContent = data.confidence.toFixed(1) + '%';
+    document.getElementById('confFill').style.width = data.confidence + '%';
+
+    // 확률 차트
+    renderProbGrid(data.probabilities, data.prediction);
+
+    // 기록 추가
+    addHistory(data.prediction);
+
+  } catch(e) {
+    document.getElementById('scanning').style.display = 'none';
+    document.getElementById('resultNum').innerHTML = `<span style="font-size:20px;color:var(--danger)">서버 오류</span>`;
+  }
+}
+
+// ─── 기록 ───
+function addHistory(digit) {
+  history.unshift(digit);
+  if (history.length > 20) history.pop();
+  const list = document.getElementById('historyList');
+  list.innerHTML = '';
+  history.forEach(d => {
+    const el = document.createElement('div');
+    el.className = 'history-item';
+    el.textContent = d;
+    list.appendChild(el);
+  });
+}
+
+// ─── 상태 확인 ───
+async function checkStatus() {
+  try {
+    const res = await fetch('/api/status');
+    const data = await res.json();
+    const dot  = document.getElementById('statusDot');
+    const txt  = document.getElementById('statusText');
+    const banner = document.getElementById('trainBanner');
+
+    if (data.trained) {
+      dot.className = 'status-dot online';
+      txt.textContent = `모델 로드됨 | 디바이스: ${data.device}`;
+      banner.classList.remove('visible');
+    } else {
+      dot.className = 'status-dot error';
+      txt.textContent = '모델 없음 — 학습 필요';
+      banner.classList.add('visible');
+    }
+  } catch(e) {
+    document.getElementById('statusDot').className = 'status-dot error';
+    document.getElementById('statusText').textContent = '서버 연결 실패';
+  }
+}
+
+// ─── 학습 ───
+async function startTraining() {
+  const btn  = document.getElementById('trainBtn');
+  const prog = document.getElementById('trainProgress');
+  btn.disabled = true;
+  btn.textContent = '학습 중...';
+  prog.textContent = 'MNIST 데이터 다운로드 및 학습 시작...';
+
+  try {
+    const res = await fetch('/api/train', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({epochs:30})
+    });
+    const data = await res.json();
+    if (data.error) {
+      prog.textContent = '오류: ' + data.error;
+    } else {
+      prog.textContent = `완료! 정확도: ${data.accuracy?.toFixed(2)}%`;
+      checkStatus();
+    }
+  } catch(e) {
+    prog.textContent = '오류 발생: ' + e.message;
+  }
+  btn.disabled = false;
+  btn.textContent = '다시 학습';
+}
+
+// ─── 초기화 ───
+checkStatus();
+setInterval(checkStatus, 30000);
+
+// 확률 차트 초기화 (빈 상태)
+(function initGrid() {
+  const grid = document.getElementById('probGrid');
+  for (let i = 0; i < 10; i++) {
+    const item = document.createElement('div');
+    item.className = 'prob-item';
+    item.innerHTML = `
+      <div class="prob-bar-container">
+        <div class="prob-bar" style="height:0%"></div>
+      </div>
+      <div class="prob-digit">${i}</div>
+      <div class="prob-pct">0%</div>
+    `;
+    grid.appendChild(item);
+  }
+})();
+</script>
+</body>
+</html>
