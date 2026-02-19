@@ -601,7 +601,7 @@ const API = '';   // 같은 오리진
 
 // ─── 캔버스 설정 ───
 const canvas  = document.getElementById('drawCanvas');
-const ctx     = canvas.getContext('2d', { willReadFrequently: true });
+const ctx     = canvas.getContext('2d', { willReadFrequently: true }); 
 const preview = document.getElementById('previewCanvas');
 const pCtx    = preview.getContext('2d');
 
@@ -754,10 +754,21 @@ function renderProbGrid(probs, best) {
 async function predict() {
   const imageData = canvas.toDataURL('image/png');
 
-  // 빈 캔버스 체크 (평균 픽셀값)
-  const data = ctx.getImageData(0,0,280,280).data;
-  const avg = Array.from(data).filter((_,i)=>i%4===0).reduce((a,b)=>a+b,0)/((280*280));
-  if (avg < 2) return;
+  // [수정] 빈 캔버스 체크 로직 최적화
+  // 기존의 복잡한 Array.from().filter().reduce() 대신 간단한 루프를 사용하거나 
+  // 혹은 미리보기(preview) 캔버스를 활용해 검사하는 것이 훨씬 빠릅니다.
+  
+  const tempCtx = preview.getContext('2d'); // 56x56 크기의 미리보기 활용
+  const smallData = tempCtx.getImageData(0, 0, 56, 56).data;
+  let hasContent = false;
+  for (let i = 0; i < smallData.length; i += 4) {
+    if (smallData[i] > 20) { // 픽셀이 조금이라도 칠해져 있는지 확인
+      hasContent = true;
+      break;
+    }
+  }
+  
+  if (!hasContent) return; // 아무것도 안 그려졌으면 서버에 요청 안 함
 
   document.getElementById('scanning').style.display = 'block';
   document.getElementById('resultNum').style.opacity = '0.3';
@@ -768,6 +779,11 @@ async function predict() {
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({image: imageData})
     });
+    
+    // [추가] 502 에러 대응 로직
+    if (res.status === 502) {
+        throw new Error("서버 메모리 초과 (502)");
+    };
     const data = await res.json();
 
     document.getElementById('scanning').style.display = 'none';
